@@ -33,7 +33,10 @@ def test_index_served(settings, make_luna):
     luna, _ = make_luna()
     with client_for(settings, luna) as c:
         r = c.get("/")
-        assert r.status_code == 200 and "Luna" in r.text
+        assert r.status_code == 200
+        data = r.json()
+        assert data["status"] == "online"
+        assert "endpoints" in data
 
 
 def test_age_gate_blocks_until_confirmed(settings, make_luna):

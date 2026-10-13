@@ -105,3 +105,13 @@ def create_store(redis_url: str, ttl_seconds: int) -> SessionStore:
     if redis_url:
         return RedisSessionStore(redis_url, ttl_seconds)
     return MemorySessionStore(ttl_seconds)
+
+
+_default_store: SessionStore | None = None
+
+
+def get_session_store() -> SessionStore:
+    global _default_store
+    if _default_store is None:
+        _default_store = MemorySessionStore()
+    return _default_store

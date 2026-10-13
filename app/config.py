@@ -32,6 +32,24 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ARGENTURA_AGENT_API_KEY", "agent_api_key"),
     )
 
+    # --- Argentura Suite Integration ---
+    argentura_base_url: str = Field(
+        "https://www.management-suite.com",
+        validation_alias=AliasChoices("ARGENTURA_BASE_URL", "argentura_base_url"),
+    )
+    argentura_username: str = Field(
+        "Test",
+        validation_alias=AliasChoices("ARGENTURA_USERNAME", "argentura_username"),
+    )
+    argentura_pin: str = Field(
+        "258036",
+        validation_alias=AliasChoices("ARGENTURA_PIN", "argentura_pin"),
+    )
+    argentura_lady_name: str = Field(
+        "Julia",
+        validation_alias=AliasChoices("ARGENTURA_LADY_NAME", "argentura_lady_name"),
+    )
+
     # --- Generation ---
     temperature: float = 0.9
     max_tokens: int = 400

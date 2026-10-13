@@ -3,3 +3,9 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+
+ARGENTURA_INTEGRATION_GUIDE.md
+
+INTEGRATION_AND_TESTING_GUIDE.md
+
+PROJECT_KNOWLEDGE.md

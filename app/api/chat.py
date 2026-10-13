@@ -22,16 +22,28 @@ def _sse(payload: dict | str) -> str:
 
 @router.post("/chat")
 async def chat(req: ChatRequest, request: Request):
-    luna = request.app.state.luna
+    agent = getattr(request.app.state, "argentura_agent", None)
+    luna = getattr(request.app.state, "luna", None)
     limiter = request.app.state.limiter
 
     # 18+ gate: the client must confirm once per session.
     if req.age_confirmed:
-        await luna.confirm_adult(req.session_id)
-    if not await luna.is_adult(req.session_id):
-        # A session flagged as minor stays blocked; the stream sends the fixed reply.
+        if luna:
+            await luna.confirm_adult(req.session_id)
+        elif agent:
+            data = await agent.store.get(req.session_id)
+            if not data.minor:
+                data.adult = True
+                await agent.store.save(req.session_id, data)
+
+    # Check adult
+    if luna and not await luna.is_adult(req.session_id):
         data = await luna.store.get(req.session_id)
         if not data.minor:
+            raise HTTPException(status_code=403, detail="age_confirmation_required")
+    elif agent:
+        data = await agent.store.get(req.session_id)
+        if not data.adult and not data.minor:
             raise HTTPException(status_code=403, detail="age_confirmation_required")
 
     blocked = limiter.check(req.session_id)
@@ -42,8 +54,12 @@ async def chat(req: ChatRequest, request: Request):
         )
 
     async def event_stream():
-        async for piece in luna.stream(req.session_id, req.message):
-            yield _sse({"delta": piece})
+        if agent:
+            reply = await agent.reply(req.session_id, req.message)
+            yield _sse({"delta": reply or ""})
+        elif luna:
+            async for piece in luna.stream(req.session_id, req.message):
+                yield _sse({"delta": piece})
         yield _sse("[DONE]")
 
     return StreamingResponse(
@@ -55,5 +71,10 @@ async def chat(req: ChatRequest, request: Request):
 
 @router.delete("/chat/{session_id}")
 async def reset_chat(session_id: str, request: Request):
-    await request.app.state.luna.reset(session_id)
+    agent = getattr(request.app.state, "argentura_agent", None)
+    luna = getattr(request.app.state, "luna", None)
+    if agent:
+        await agent.reset(session_id)
+    elif luna:
+        await luna.reset(session_id)
     return {"status": "cleared"}

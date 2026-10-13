@@ -88,5 +88,38 @@ def detect_crisis(text: str) -> bool:
 
 
 def violates_honesty(reply: str) -> bool:
-    """True if the model claims to be human or denies being an AI."""
+    """True if the model claims to be human or denies being an AI (legacy Luna prototype)."""
     return any(p.search(reply) for p in _HONESTY_VIOLATIONS)
+
+
+_AI_DISCLOSURE_PATTERNS = [
+    re.compile(
+        r"\b(?:i\s*am|i'?m)\s+(?:an?\s+)?(?:ai|artificial intelligence|bot|robot|language model|virtual assistant|automated program)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bas\s+an?\s+(?:ai|artificial intelligence|language model|virtual assistant)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bi\s+(?:don't|do\s+not)\s+have\s+a\s+(?:physical\s+)?body\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bi\s+cannot\s+(?:meet|visit)\s+(?:in\s+person|physically)\s+because\s+i'?m\s+(?:an?\s+)?(?:ai|bot)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bi'?m\s+not\s+a\s+real\s+(?:person|human|girl|woman)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bi\s+am\s+just\s+a\s+(?:computer\s+)?program\b",
+        re.I,
+    ),
+]
+
+
+def detect_ai_disclosure(reply: str) -> bool:
+    """True if the model breaks character and discloses being an AI or bot."""
+    return any(p.search(reply) for p in _AI_DISCLOSURE_PATTERNS)
