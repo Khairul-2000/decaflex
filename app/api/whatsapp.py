@@ -24,6 +24,8 @@ class IncomingWhatsAppMessage(BaseModel):
     sender_phone: str = Field(description="Customer phone number (E.164)")
     sender_name: str | None = Field(default="Guest", description="Customer profile name")
     message: str = Field(description="Text message content")
+    dispatch: bool = Field(default=False, description="Whether to dispatch message immediately via Argentura HTTP API")
+
 
 
 # Cache for active agent instances per lady
@@ -60,12 +62,8 @@ async def get_or_create_agent(
 
     lady = await client.get_lady_profile(lady_id)
     if not lady:
-        # Fallback to first available lady
-        ladies = await client.get_ladies()
-        if ladies:
-            lady = ladies[0]
-        else:
-            lady = LadyProfile(id=lady_id, name="Julia")
+        target_name = settings.argentura_lady_name or "Lila"
+        lady = LadyProfile(id=lady_id, name=target_name)
 
     agent = AgentService(
         settings=settings,
@@ -112,16 +110,17 @@ async def handle_incoming_whatsapp(
     if not reply:
         return {"status": "silent", "reason": "no_reply_or_takeover"}
 
-    # 4. Human-like typing delay (jitter) to prevent WhatsApp bans
-    delay = random.uniform(1.5, 3.0)
-    await asyncio.sleep(delay)
-
-    # 5. Dispatch reply back to customer via Argentura Baileys bridge
-    sent = await client.send_chat_message(payload.chat_id, reply)
-    log.info("Dispatched WhatsApp reply to %s: %s (sent: %s)", payload.chat_id, reply[:60], sent)
+    sent = False
+    if payload.dispatch:
+        # Human-like typing delay (jitter) to prevent WhatsApp bans
+        delay = random.uniform(1.5, 3.0)
+        await asyncio.sleep(delay)
+        sent = await client.send_chat_message(payload.chat_id, reply)
+        log.info("Dispatched WhatsApp reply to %s: %s (sent: %s)", payload.chat_id, reply[:60], sent)
 
     return {
-        "status": "sent" if sent else "queued",
+        "status": "sent" if sent else "ready",
         "reply": reply,
         "chat_id": payload.chat_id,
     }
+

@@ -59,11 +59,16 @@ def create_app(
                 ok = await arg_client.login()
                 if ok:
                     ladies = await arg_client.get_ladies()
-                    target_name = settings.argentura_lady_name
-                    lady = next(
-                        (l for l in ladies if target_name.lower() in l.name.lower()),
-                        ladies[0] if ladies else LadyProfile(id="default", name=target_name),
-                    )
+                    target_name = settings.argentura_lady_name or "Lila"
+                    matched = next((l for l in ladies if target_name.lower() in l.name.lower()), None)
+                    if matched:
+                        lady = matched
+                    elif target_name.lower() != "julia":
+                        lady = LadyProfile(id=f"greenfield-lady:{target_name.lower()}", name=target_name)
+                    elif ladies:
+                        lady = ladies[0]
+                    else:
+                        lady = LadyProfile(id="default", name=target_name)
                     app.state.argentura_client = arg_client
                     app.state.argentura_agent = AgentService(
                         settings=settings,
