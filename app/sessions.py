@@ -65,6 +65,11 @@ class MemorySessionStore:
         self._data.clear()
 
 
+import logging
+
+log = logging.getLogger("luna.sessions")
+
+
 class RedisSessionStore:
     def __init__(self, url: str, ttl_seconds: int = 86400):
         import redis.asyncio as redis
@@ -77,7 +82,9 @@ class RedisSessionStore:
         return f"luna:session:{session_id}"
 
     async def get(self, session_id: str) -> SessionData:
-        raw = await self._redis.get(self._key(session_id))
+        key = self._key(session_id)
+        raw = await self._redis.get(key)
+        log.info("Redis session GET '%s' (found: %s)", key, bool(raw))
         if not raw:
             return SessionData()
         obj = json.loads(raw)
@@ -88,8 +95,10 @@ class RedisSessionStore:
         )
 
     async def save(self, session_id: str, data: SessionData) -> None:
+        key = self._key(session_id)
+        log.info("Redis session SET '%s' (TTL: %ds, messages: %d)", key, self._ttl, len(data.history))
         await self._redis.set(
-            self._key(session_id), json.dumps(asdict(data)), ex=self._ttl
+            key, json.dumps(asdict(data)), ex=self._ttl
         )
 
     async def clear_history(self, session_id: str) -> None:
@@ -101,17 +110,22 @@ class RedisSessionStore:
         await self._redis.aclose()
 
 
-def create_store(redis_url: str, ttl_seconds: int) -> SessionStore:
-    if redis_url:
-        return RedisSessionStore(redis_url, ttl_seconds)
-    return MemorySessionStore(ttl_seconds)
-
-
 _default_store: SessionStore | None = None
+
+
+def create_store(redis_url: str, ttl_seconds: int) -> SessionStore:
+    global _default_store
+    if redis_url:
+        _default_store = RedisSessionStore(redis_url, ttl_seconds)
+    else:
+        _default_store = MemorySessionStore(ttl_seconds)
+    return _default_store
 
 
 def get_session_store() -> SessionStore:
     global _default_store
     if _default_store is None:
-        _default_store = MemorySessionStore()
+        from app.config import get_settings
+        settings = get_settings()
+        _default_store = create_store(settings.redis_url, settings.session_ttl_seconds)
     return _default_store

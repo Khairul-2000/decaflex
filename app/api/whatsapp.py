@@ -20,6 +20,9 @@ router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
 
 class IncomingWhatsAppMessage(BaseModel):
     lady_id: str | None = Field(default=None, description="Assigned Lady ID")
+    lady_name: str | None = Field(default=None, description="Assigned Lady Name")
+    agency_id: str | None = Field(default=None, description="Assigned Agency ID")
+    lady_context: dict[str, Any] | None = Field(default=None, description="Real profile and pricing context from Argentura")
     chat_id: str = Field(description="Argentura conversation / chat ID")
     sender_phone: str = Field(description="Customer phone number (E.164)")
     sender_name: str | None = Field(default="Guest", description="Customer profile name")
@@ -56,13 +59,31 @@ async def get_or_create_agent(
     client: ArgenturaClient,
     settings: Settings,
     store: SessionStore,
+    lady_context: dict[str, Any] | None = None,
+    lady_name: str | None = None,
 ) -> AgentService:
+    # If lady_context was supplied in webhook, build agent with real prices & profile
+    if lady_context and isinstance(lady_context, dict):
+        lady = LadyProfile.from_lady_context(
+            lady_id=lady_id,
+            lady_context=lady_context,
+            fallback_name=lady_name or settings.argentura_lady_name or "Lila",
+        )
+        agent = AgentService(
+            settings=settings,
+            store=store,
+            lady=lady,
+            client=client,
+        )
+        _AGENTS[lady_id] = agent
+        return agent
+
     if lady_id in _AGENTS:
         return _AGENTS[lady_id]
 
     lady = await client.get_lady_profile(lady_id)
     if not lady:
-        target_name = settings.argentura_lady_name or "Lila"
+        target_name = lady_name or settings.argentura_lady_name or "Lila"
         lady = LadyProfile(id=lady_id, name=target_name)
 
     agent = AgentService(
@@ -94,11 +115,21 @@ async def handle_incoming_whatsapp(
         log.info("Chat %s is in human mode. Operator has taken over; AI ignoring.", payload.chat_id)
         return {"status": "ignored", "reason": "operator_takeover"}
 
-    # 2. Get agent instance for this lady
-    agent = await get_or_create_agent(lady_id, client, settings, store)
+    # 2. Get agent instance for this lady dynamically
+    agent = await get_or_create_agent(
+        lady_id=lady_id,
+        client=client,
+        settings=settings,
+        store=store,
+        lady_context=payload.lady_context,
+        lady_name=payload.lady_name,
+    )
 
     session_id = f"wa:{lady_id}:{payload.sender_phone}"
-    log.info("Processing WhatsApp message from %s for lady %s (Chat %s)", payload.sender_phone, lady_id, payload.chat_id)
+    log.info(
+        "Processing WhatsApp message from %s for lady %s '%s' (Chat %s, Agency %s)",
+        payload.sender_phone, lady_id, agent.lady.name, payload.chat_id, payload.agency_id
+    )
 
     # 3. Generate response with tools
     reply = await agent.reply(

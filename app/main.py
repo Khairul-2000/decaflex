@@ -33,6 +33,8 @@ def create_app(
             app.state.luna = LunaService(settings, store)
         else:
             app.state.luna = luna
+            store = getattr(luna, "store", None)
+        app.state.store = store
         app.state.settings = settings
         app.state.limiter = RateLimiter(
             settings.rate_limit_per_minute, settings.daily_message_cap
@@ -44,11 +46,9 @@ def create_app(
             app.state.telegram = bot
             await bot.start()
 
-        # Initialize live Argentura agent
+        # Initialize live Argentura client
         if start_argentura:
             from app.argentura.client import ArgenturaClient
-            from app.argentura.models import LadyProfile
-            from app.agent_service import AgentService
 
             arg_client = ArgenturaClient(
                 base_url=settings.argentura_base_url,
@@ -58,32 +58,15 @@ def create_app(
             try:
                 ok = await arg_client.login()
                 if ok:
-                    ladies = await arg_client.get_ladies()
-                    target_name = settings.argentura_lady_name or "Lila"
-                    matched = next((l for l in ladies if target_name.lower() in l.name.lower()), None)
-                    if matched:
-                        lady = matched
-                    elif target_name.lower() != "julia":
-                        lady = LadyProfile(id=f"greenfield-lady:{target_name.lower()}", name=target_name)
-                    elif ladies:
-                        lady = ladies[0]
-                    else:
-                        lady = LadyProfile(id="default", name=target_name)
                     app.state.argentura_client = arg_client
-                    app.state.argentura_agent = AgentService(
-                        settings=settings,
-                        store=store or app.state.luna.store,
-                        lady=lady,
-                        client=arg_client,
-                    )
                     logging.getLogger("argentura").info(
-                        "✅ Live Argentura agent ACTIVE for lady '%s' (ID: %s, Agency: %s)",
-                        lady.name, lady.id, arg_client.agency_id
+                        "✅ Argentura client ACTIVE (Agency: %s, Base: %s)",
+                        arg_client.agency_id, arg_client.base_url
                     )
                 else:
                     logging.getLogger("argentura").warning("Failed to authenticate with Argentura suite")
             except Exception:
-                logging.getLogger("argentura").exception("Could not initialize live Argentura agent")
+                logging.getLogger("argentura").exception("Could not initialize Argentura client")
 
         if not settings.agent_api_key:
             logging.getLogger("luna").warning(
@@ -106,15 +89,19 @@ def create_app(
 
     @app.get("/health")
     async def health():
-        agent = getattr(app.state, "argentura_agent", None)
-        client = getattr(app.state, "argentura_client", None)
+        store = getattr(app.state, "store", None)
+        redis_connected = False
+        if store and hasattr(store, "_redis"):
+            try:
+                await store._redis.ping()
+                redis_connected = True
+            except Exception:
+                redis_connected = False
         return {
             "status": "ok",
+            "engine": "multi-tenant-dynamic",
             "model": settings.agent_model,
-            "agency_connected": agent is not None,
-            "agency_id": client.agency_id if client else None,
-            "lady_name": agent.lady.name if agent else None,
-            "lady_id": agent.lady.id if agent else None,
+            "redis_connected": redis_connected,
             "telegram": bool(settings.telegram_bot_token),
         }
 

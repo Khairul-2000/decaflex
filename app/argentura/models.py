@@ -157,6 +157,75 @@ class LadyProfile(BaseModel):
         valid = [p for p in parts if p]
         return ", ".join(valid) if valid else "Studio"
 
+    @classmethod
+    def from_lady_context(
+        cls,
+        lady_id: str,
+        lady_context: dict[str, Any] | None = None,
+        fallback_name: str = "Lila",
+    ) -> "LadyProfile":
+        """Build a LadyProfile dynamically from Argentura's real ladyContext."""
+        if not lady_context or not isinstance(lady_context, dict):
+            return cls(id=lady_id, name=fallback_name)
+
+        name = lady_context.get("displayName") or fallback_name
+        personality = lady_context.get("personality") or ""
+        important_info = lady_context.get("importantInformation") or ""
+        ai_info = f"{personality}\n{important_info}".strip() or None
+
+        prices_dict: dict[str, int] = {}
+        services = lady_context.get("services") or []
+        for s in services:
+            if not isinstance(s, dict):
+                continue
+            dur = s.get("durationMinutes")
+            minor = s.get("amountMinor")
+            if dur and minor is not None:
+                major = minor // 100
+                if dur == 20: prices_dict["p20"] = major
+                elif dur == 30: prices_dict["p30"] = major
+                elif dur == 45: prices_dict["p45"] = major
+                elif dur == 60: prices_dict["p60"] = major
+                elif dur == 120: prices_dict["p120"] = major
+                elif dur == 180: prices_dict["p180"] = major
+                elif dur == 240: prices_dict["p240"] = major
+
+        structured_prices = PriceStructure(**prices_dict) if prices_dict else None
+
+        extras_list: list[ExtraService] = []
+        raw_extras = lady_context.get("extras") or []
+        for e in raw_extras:
+            if not isinstance(e, dict):
+                continue
+            extra_id = str(e.get("extraId") or e.get("id") or f"ext_{len(extras_list)}")
+            extras_list.append(ExtraService(
+                extraId=extra_id,
+                name=e.get("name", "Extra"),
+                amountMinor=int(e.get("amountMinor") or 0),
+                amountMajor=e.get("displayAmount"),
+                description=e.get("description"),
+            ))
+
+        incall_addr = lady_context.get("incallAddress") or {}
+        street = incall_addr.get("street") if isinstance(incall_addr, dict) else None
+        house_num = incall_addr.get("houseNumber") if isinstance(incall_addr, dict) else None
+        postal_code = incall_addr.get("zip") if isinstance(incall_addr, dict) else None
+        city = incall_addr.get("city") if isinstance(incall_addr, dict) else None
+
+        return cls(
+            id=lady_id,
+            name=name,
+            sprache=lady_context.get("language") or "de",
+            street=street,
+            houseNumber=house_num,
+            zip=postal_code,
+            city=city,
+            structuredPrices=structured_prices,
+            structuredExtras=extras_list,
+            aiInfo=ai_info,
+        )
+
+
 
 class Appointment(BaseModel):
     id: str | None = None
