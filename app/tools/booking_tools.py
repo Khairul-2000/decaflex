@@ -54,10 +54,82 @@ class BookingToolkit:
         lady: LadyProfile,
         client: ArgenturaClient,
         geo_service: GeolocationService | None = None,
+        availability_context: dict[str, Any] | None = None,
     ):
         self.lady = lady
         self.client = client
         self.geo_service = geo_service or GeolocationService()
+        self.availability_context = availability_context
+
+    def _check_availability_from_context(
+        self,
+        date_str: str,
+        time_str: str,
+        duration_minutes: int,
+        location_type: str,
+        slots: list[dict[str, Any]],
+    ) -> str:
+        from datetime import datetime, timedelta
+        from zoneinfo import ZoneInfo
+
+        time_zone_str = "Europe/Berlin"
+        if self.availability_context and isinstance(self.availability_context.get("timeZone"), str):
+            time_zone_str = self.availability_context["timeZone"]
+
+        try:
+            tz = ZoneInfo(time_zone_str)
+        except Exception:
+            tz = ZoneInfo("UTC")
+
+        try:
+            req_start = datetime.fromisoformat(f"{date_str}T{time_str}:00").replace(tzinfo=tz)
+        except ValueError:
+            return json.dumps({
+                "status": "unavailable",
+                "reason": "Invalid date or time format",
+                "suggested_alternatives": [],
+                "message": f"Could not parse date {date_str} or time {time_str}."
+            })
+
+        req_end = req_start + timedelta(minutes=duration_minutes)
+
+        is_free = False
+        alternatives = []
+
+        for s in slots:
+            if not isinstance(s, dict) or s.get("status") != "available":
+                continue
+            starts_at_str = s.get("startsAt")
+            ends_at_str = s.get("endsAt")
+            if not starts_at_str or not ends_at_str:
+                continue
+            try:
+                s_start = datetime.fromisoformat(starts_at_str.replace("Z", "+00:00")).astimezone(tz)
+                s_end = datetime.fromisoformat(ends_at_str.replace("Z", "+00:00")).astimezone(tz)
+            except Exception:
+                continue
+
+            if s_start <= req_start and s_end >= req_end:
+                is_free = True
+
+            if (s_end - s_start).total_seconds() >= duration_minutes * 60:
+                if s_start.strftime("%Y-%m-%d") == date_str:
+                    time_label = s_start.strftime("%H:%M")
+                    if time_label not in alternatives:
+                        alternatives.append(time_label)
+
+        if is_free:
+            return json.dumps({
+                "status": "available",
+                "message": f"Slot on {date_str} at {time_str} ({duration_minutes} min, {location_type}) is open and available.",
+            })
+        else:
+            return json.dumps({
+                "status": "unavailable",
+                "reason": "Requested time is unavailable",
+                "suggested_alternatives": alternatives[:4],
+                "message": f"Slot is unavailable. Available alternative start times on {date_str}: {', '.join(alternatives[:4]) if alternatives else 'none on this day'}.",
+            })
 
     def get_tools(self) -> list[StructuredTool]:
         return [
@@ -104,6 +176,10 @@ class BookingToolkit:
         duration_minutes: int = 60,
         location_type: str = "incall",
     ) -> str:
+        if self.availability_context and isinstance(self.availability_context.get("slots"), list):
+            slots = self.availability_context["slots"]
+            return self._check_availability_from_context(date, time, duration_minutes, location_type, slots)
+
         appointments = await self.client.get_appointments(lady_id=self.lady.id, date=date)
         is_free, reason, alternatives = AvailabilityEngine.is_slot_available(
             self.lady,

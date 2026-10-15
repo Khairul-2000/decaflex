@@ -50,3 +50,50 @@ def test_whatsapp_webhook_operator_takeover():
     assert len(mock_client.sent_messages) == 0
 
     app.dependency_overrides.clear()
+
+
+def test_whatsapp_webhook_greenfield_conversation_bypass():
+    class ThrowingArgenturaClient(MockArgenturaClient):
+        async def get_chat_mode(self, chat_id: str) -> str:
+            raise RuntimeError("Should not be called for wa-conversation-* internal chats")
+
+    mock_client = ThrowingArgenturaClient()
+    app.dependency_overrides[get_argentura_client] = lambda: mock_client
+    client = TestClient(app)
+
+    # 1. Normal wa-conversation- should bypass get_chat_mode call
+    payload = {
+        "lady_id": "lady-lila",
+        "lady_name": "Lila",
+        "agency_id": "agency-diana1",
+        "chat_id": "wa-conversation-12345",
+        "sender_phone": "+49170111222",
+        "message": "Hi, are you there?",
+        "availability_context": {
+            "timeZone": "Europe/Berlin",
+            "slots": [
+                {
+                    "startsAt": "2026-10-16T18:00:00.000Z",
+                    "endsAt": "2026-10-16T22:00:00.000Z",
+                    "status": "available",
+                }
+            ],
+        },
+    }
+
+    resp = client.post("/whatsapp/webhook", json=payload)
+    assert resp.status_code == 200
+    assert resp.json()["status"] in ("ready", "sent")
+
+    # 2. Operator takeover in payload should be honored
+    takeover_payload = {
+        **payload,
+        "ownership_kind": "operator",
+    }
+    resp2 = client.post("/whatsapp/webhook", json=takeover_payload)
+    assert resp2.status_code == 200
+    assert resp2.json()["status"] == "ignored"
+    assert resp2.json()["reason"] == "operator_takeover"
+
+    app.dependency_overrides.clear()
+

@@ -52,12 +52,14 @@ class AgentService:
         client: ArgenturaClient,
         toolkit: BookingToolkit | None = None,
         llm: ChatOpenAI | None = None,
+        availability_context: dict[str, Any] | None = None,
     ):
         self.settings = settings
         self.store = store
         self.lady = lady
         self.client = client
-        self.toolkit = toolkit or BookingToolkit(lady=lady, client=client)
+        self.availability_context = availability_context
+        self.toolkit = toolkit or BookingToolkit(lady=lady, client=client, availability_context=availability_context)
         self.tools = self.toolkit.get_tools()
         self.tools_by_name = {t.name: t for t in self.tools}
 
@@ -149,7 +151,7 @@ class AgentService:
         Returns None if an operator has taken over the chat.
         """
         # 1. Operator takeover check
-        if chat_id:
+        if chat_id and not chat_id.startswith("wa-conversation-"):
             mode = await self.client.get_chat_mode(chat_id)
             if mode == "human":
                 log.info("Chat %s is in human mode; suppressing AI reply", chat_id)

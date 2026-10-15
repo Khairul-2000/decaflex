@@ -23,6 +23,9 @@ class IncomingWhatsAppMessage(BaseModel):
     lady_name: str | None = Field(default=None, description="Assigned Lady Name")
     agency_id: str | None = Field(default=None, description="Assigned Agency ID")
     lady_context: dict[str, Any] | None = Field(default=None, description="Real profile and pricing context from Argentura")
+    availability_context: dict[str, Any] | None = Field(default=None, description="Pre-calculated 14-day slot availability schedule from Argentura")
+    conversation_state: str | None = Field(default=None, description="Conversation state e.g. AI_ACTIVE")
+    ownership_kind: str | None = Field(default=None, description="Ownership kind e.g. ai or operator")
     chat_id: str = Field(description="Argentura conversation / chat ID")
     sender_phone: str = Field(description="Customer phone number (E.164)")
     sender_name: str | None = Field(default="Guest", description="Customer profile name")
@@ -61,6 +64,7 @@ async def get_or_create_agent(
     store: SessionStore,
     lady_context: dict[str, Any] | None = None,
     lady_name: str | None = None,
+    availability_context: dict[str, Any] | None = None,
 ) -> AgentService:
     # If lady_context was supplied in webhook, build agent with real prices & profile
     if lady_context and isinstance(lady_context, dict):
@@ -74,11 +78,15 @@ async def get_or_create_agent(
             store=store,
             lady=lady,
             client=client,
+            availability_context=availability_context,
         )
         _AGENTS[lady_id] = agent
         return agent
 
     if lady_id in _AGENTS:
+        if availability_context:
+            _AGENTS[lady_id].availability_context = availability_context
+            _AGENTS[lady_id].toolkit.availability_context = availability_context
         return _AGENTS[lady_id]
 
     lady = await client.get_lady_profile(lady_id)
@@ -91,6 +99,7 @@ async def get_or_create_agent(
         store=store,
         lady=lady,
         client=client,
+        availability_context=availability_context,
     )
     _AGENTS[lady_id] = agent
     return agent
@@ -110,10 +119,18 @@ async def handle_incoming_whatsapp(
         lady_id = ladies[0].id if ladies else "default"
 
     # 1. Check if human operator took over this chat
-    mode = await client.get_chat_mode(payload.chat_id)
-    if mode == "human":
-        log.info("Chat %s is in human mode. Operator has taken over; AI ignoring.", payload.chat_id)
-        return {"status": "ignored", "reason": "operator_takeover"}
+    if payload.chat_id.startswith("wa-conversation-"):
+        # Greenfield Baileys worker enforces AI_ACTIVE at DB lease claim.
+        # Bypass cross-tenant REST lookups that return 404 for non-Test99 agencies.
+        if (payload.ownership_kind and payload.ownership_kind.lower() in ("operator", "human")) or \
+           (payload.conversation_state and payload.conversation_state.upper() in ("HUMAN_TAKEOVER", "OPERATOR")):
+            log.info("Chat %s has operator takeover flag set. AI ignoring.", payload.chat_id)
+            return {"status": "ignored", "reason": "operator_takeover"}
+    else:
+        mode = await client.get_chat_mode(payload.chat_id)
+        if mode == "human":
+            log.info("Chat %s is in human mode. Operator has taken over; AI ignoring.", payload.chat_id)
+            return {"status": "ignored", "reason": "operator_takeover"}
 
     # 2. Get agent instance for this lady dynamically
     agent = await get_or_create_agent(
@@ -123,6 +140,7 @@ async def handle_incoming_whatsapp(
         store=store,
         lady_context=payload.lady_context,
         lady_name=payload.lady_name,
+        availability_context=payload.availability_context,
     )
 
     session_id = f"wa:{lady_id}:{payload.sender_phone}"
