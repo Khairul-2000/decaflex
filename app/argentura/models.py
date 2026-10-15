@@ -181,7 +181,10 @@ class LadyProfile(BaseModel):
             dur = s.get("durationMinutes")
             minor = s.get("amountMinor")
             if dur and minor is not None:
-                major = minor // 100
+                try:
+                    major = int(minor) // 100
+                except (ValueError, TypeError):
+                    major = 0
                 if dur == 20: prices_dict["p20"] = major
                 elif dur == 30: prices_dict["p30"] = major
                 elif dur == 45: prices_dict["p45"] = major
