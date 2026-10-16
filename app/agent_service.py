@@ -53,12 +53,14 @@ class AgentService:
         toolkit: BookingToolkit | None = None,
         llm: ChatOpenAI | None = None,
         availability_context: dict[str, Any] | None = None,
+        response_language: str | None = None,
     ):
         self.settings = settings
         self.store = store
         self.lady = lady
         self.client = client
         self.availability_context = availability_context
+        self.response_language = response_language
         self.toolkit = toolkit or BookingToolkit(lady=lady, client=client, availability_context=availability_context)
         self.tools = self.toolkit.get_tools()
         self.tools_by_name = {t.name: t for t in self.tools}
@@ -74,7 +76,7 @@ class AgentService:
             default_headers={"HTTP-Referer": settings.app_url, "X-Title": lady.name},
         )
         self.llm = raw_llm.bind_tools(self.tools)
-        self.system_prompt = build_lady_system_prompt(lady)
+        self.system_prompt = build_lady_system_prompt(lady, response_language=response_language)
 
     def _build_messages(
         self, data: SessionData, text: str, extra_note: str | None = None

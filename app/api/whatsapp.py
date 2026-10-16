@@ -26,6 +26,7 @@ class IncomingWhatsAppMessage(BaseModel):
     availability_context: dict[str, Any] | None = Field(default=None, description="Pre-calculated 14-day slot availability schedule from Argentura")
     conversation_state: str | None = Field(default=None, description="Conversation state e.g. AI_ACTIVE")
     ownership_kind: str | None = Field(default=None, description="Ownership kind e.g. ai or operator")
+    response_language: str | None = Field(default=None, description="Authoritative server-selected response language ('de', 'en', etc.)")
     chat_id: str = Field(description="Argentura conversation / chat ID")
     sender_phone: str = Field(description="Customer phone number (E.164)")
     sender_name: str | None = Field(default="Guest", description="Customer profile name")
@@ -65,6 +66,7 @@ async def get_or_create_agent(
     lady_context: dict[str, Any] | None = None,
     lady_name: str | None = None,
     availability_context: dict[str, Any] | None = None,
+    response_language: str | None = None,
 ) -> AgentService:
     # If lady_context was supplied in webhook, build agent with real prices & profile
     if lady_context and isinstance(lady_context, dict):
@@ -79,6 +81,7 @@ async def get_or_create_agent(
             lady=lady,
             client=client,
             availability_context=availability_context,
+            response_language=response_language,
         )
         _AGENTS[lady_id] = agent
         return agent
@@ -87,6 +90,9 @@ async def get_or_create_agent(
         if availability_context:
             _AGENTS[lady_id].availability_context = availability_context
             _AGENTS[lady_id].toolkit.availability_context = availability_context
+        if response_language and getattr(_AGENTS[lady_id], "response_language", None) != response_language:
+            _AGENTS[lady_id].response_language = response_language
+            _AGENTS[lady_id].system_prompt = build_lady_system_prompt(_AGENTS[lady_id].lady, response_language=response_language)
         return _AGENTS[lady_id]
 
     lady = await client.get_lady_profile(lady_id)
@@ -100,6 +106,7 @@ async def get_or_create_agent(
         lady=lady,
         client=client,
         availability_context=availability_context,
+        response_language=response_language,
     )
     _AGENTS[lady_id] = agent
     return agent
@@ -141,6 +148,7 @@ async def handle_incoming_whatsapp(
         lady_context=payload.lady_context,
         lady_name=payload.lady_name,
         availability_context=payload.availability_context,
+        response_language=payload.response_language,
     )
 
     session_id = f"wa:{lady_id}:{payload.sender_phone}"
