@@ -54,6 +54,8 @@ class AgentService:
         llm: ChatOpenAI | None = None,
         availability_context: dict[str, Any] | None = None,
         response_language: str | None = None,
+        sender_name: str | None = None,
+        sender_phone: str | None = None,
     ):
         self.settings = settings
         self.store = store
@@ -61,9 +63,18 @@ class AgentService:
         self.client = client
         self.availability_context = availability_context
         self.response_language = response_language
-        self.toolkit = toolkit or BookingToolkit(lady=lady, client=client, availability_context=availability_context)
+        self.sender_name = sender_name
+        self.sender_phone = sender_phone
+        self.toolkit = toolkit or BookingToolkit(
+            lady=lady,
+            client=client,
+            availability_context=availability_context,
+            sender_name=sender_name,
+            sender_phone=sender_phone,
+        )
         self.tools = self.toolkit.get_tools()
         self.tools_by_name = {t.name: t for t in self.tools}
+        self.last_booking_intent: dict[str, Any] | None = None
 
         raw_llm = llm or ChatOpenAI(
             model=settings.agent_model,
@@ -81,7 +92,8 @@ class AgentService:
     def _build_messages(
         self, data: SessionData, text: str, extra_note: str | None = None
     ) -> list[BaseMessage]:
-        system = self.system_prompt
+        # Always compile with fresh live Europe/Berlin datetime
+        system = build_lady_system_prompt(self.lady, response_language=self.response_language)
         if detect_crisis(text):
             system += "\n\n" + CRISIS_NOTE
         if extra_note:
@@ -96,6 +108,7 @@ class AgentService:
                 messages.append(AIMessage(content=turn["content"]))
         messages.append(HumanMessage(content=text))
         return messages
+
 
     async def _minor_gate(self, session_id: str, data: SessionData, text: str) -> str | None:
         if data.minor:
@@ -147,11 +160,23 @@ class AgentService:
         session_id: str,
         text: str,
         chat_id: str | None = None,
+        sender_name: str | None = None,
+        sender_phone: str | None = None,
     ) -> str | None:
         """Process incoming customer message and generate response.
 
         Returns None if an operator has taken over the chat.
         """
+        if sender_name:
+            self.sender_name = sender_name
+            self.toolkit.sender_name = sender_name
+        if sender_phone:
+            self.sender_phone = sender_phone
+            self.toolkit.sender_phone = sender_phone
+
+        self.toolkit.last_booking_intent = None
+        self.last_booking_intent = None
+
         # 1. Operator takeover check
         if chat_id and not chat_id.startswith("wa-conversation-"):
             mode = await self.client.get_chat_mode(chat_id)
@@ -183,6 +208,9 @@ class AgentService:
         if not reply:
             reply = FALLBACK_REPLY
 
+        # Capture any booking intent executed during this turn
+        self.last_booking_intent = self.toolkit.last_booking_intent
+
         # 5. Commit history
         data.history.append({"role": "user", "content": text})
         data.history.append({"role": "assistant", "content": reply})
@@ -191,6 +219,7 @@ class AgentService:
         await self.store.save(session_id, data)
 
         return reply
+
 
     async def reset(self, session_id: str) -> None:
         await self.store.clear_history(session_id)

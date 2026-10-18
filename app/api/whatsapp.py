@@ -67,6 +67,8 @@ async def get_or_create_agent(
     lady_name: str | None = None,
     availability_context: dict[str, Any] | None = None,
     response_language: str | None = None,
+    sender_name: str | None = None,
+    sender_phone: str | None = None,
 ) -> AgentService:
     # If lady_context was supplied in webhook, build agent with real prices & profile
     if lady_context and isinstance(lady_context, dict):
@@ -82,18 +84,27 @@ async def get_or_create_agent(
             client=client,
             availability_context=availability_context,
             response_language=response_language,
+            sender_name=sender_name,
+            sender_phone=sender_phone,
         )
         _AGENTS[lady_id] = agent
         return agent
 
     if lady_id in _AGENTS:
+        agent = _AGENTS[lady_id]
+        if sender_name:
+            agent.sender_name = sender_name
+            agent.toolkit.sender_name = sender_name
+        if sender_phone:
+            agent.sender_phone = sender_phone
+            agent.toolkit.sender_phone = sender_phone
         if availability_context:
-            _AGENTS[lady_id].availability_context = availability_context
-            _AGENTS[lady_id].toolkit.availability_context = availability_context
-        if response_language and getattr(_AGENTS[lady_id], "response_language", None) != response_language:
-            _AGENTS[lady_id].response_language = response_language
-            _AGENTS[lady_id].system_prompt = build_lady_system_prompt(_AGENTS[lady_id].lady, response_language=response_language)
-        return _AGENTS[lady_id]
+            agent.availability_context = availability_context
+            agent.toolkit.availability_context = availability_context
+        if response_language and getattr(agent, "response_language", None) != response_language:
+            agent.response_language = response_language
+            agent.system_prompt = build_lady_system_prompt(agent.lady, response_language=response_language)
+        return agent
 
     lady = await client.get_lady_profile(lady_id)
     if not lady:
@@ -107,6 +118,8 @@ async def get_or_create_agent(
         client=client,
         availability_context=availability_context,
         response_language=response_language,
+        sender_name=sender_name,
+        sender_phone=sender_phone,
     )
     _AGENTS[lady_id] = agent
     return agent
@@ -149,6 +162,8 @@ async def handle_incoming_whatsapp(
         lady_name=payload.lady_name,
         availability_context=payload.availability_context,
         response_language=payload.response_language,
+        sender_name=payload.sender_name,
+        sender_phone=payload.sender_phone,
     )
 
     session_id = f"wa:{lady_id}:{payload.sender_phone}"
@@ -162,6 +177,8 @@ async def handle_incoming_whatsapp(
         session_id=session_id,
         text=payload.message,
         chat_id=payload.chat_id,
+        sender_name=payload.sender_name,
+        sender_phone=payload.sender_phone,
     )
 
     if not reply:
@@ -179,5 +196,7 @@ async def handle_incoming_whatsapp(
         "status": "sent" if sent else "ready",
         "reply": reply,
         "chat_id": payload.chat_id,
+        "booking_intent": agent.last_booking_intent,
     }
+
 

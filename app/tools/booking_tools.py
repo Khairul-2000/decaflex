@@ -36,12 +36,12 @@ class CalculatePriceSchema(BaseModel):
 
 
 class BookAppointmentSchema(BaseModel):
-    customer_name: str = Field(description="Name or nickname of the customer")
-    customer_phone: str = Field(description="Phone number of the customer")
-    date: str = Field(description="Date in YYYY-MM-DD format")
-    time: str = Field(description="Start time in HH:MM format")
-    duration_minutes: int = Field(default=60, description="Duration in minutes")
+    date: str = Field(description="Date in YYYY-MM-DD format, e.g. 2026-10-17")
+    time: str = Field(description="Start time in HH:MM format (24-hour), e.g. 15:00")
+    duration_minutes: int = Field(default=60, description="Duration in minutes (e.g. 30, 45, 60, 120)")
     location_type: str = Field(default="incall", description="'incall' or 'outcall'")
+    customer_name: str | None = Field(default=None, description="Name or nickname of the customer (optional; defaults to customer's WhatsApp profile name)")
+    customer_phone: str | None = Field(default=None, description="Phone number of the customer (optional; defaults to customer's WhatsApp phone number)")
     customer_address: str | None = Field(default=None, description="Customer address if outcall")
     notes: str | None = Field(default=None, description="Special requests or notes")
 
@@ -55,11 +55,16 @@ class BookingToolkit:
         client: ArgenturaClient,
         geo_service: GeolocationService | None = None,
         availability_context: dict[str, Any] | None = None,
+        sender_name: str | None = None,
+        sender_phone: str | None = None,
     ):
         self.lady = lady
         self.client = client
         self.geo_service = geo_service or GeolocationService()
         self.availability_context = availability_context
+        self.sender_name = sender_name
+        self.sender_phone = sender_phone
+        self.last_booking_intent: dict[str, Any] | None = None
 
     def _check_availability_from_context(
         self,
@@ -274,15 +279,18 @@ class BookingToolkit:
 
     async def book_appointment(
         self,
-        customer_name: str,
-        customer_phone: str,
         date: str,
         time: str,
         duration_minutes: int = 60,
         location_type: str = "incall",
+        customer_name: str | None = None,
+        customer_phone: str | None = None,
         customer_address: str | None = None,
         notes: str | None = None,
     ) -> str:
+        effective_name = customer_name or self.sender_name or "Alex"
+        effective_phone = customer_phone or self.sender_phone or "unknown"
+
         start_mins = time_to_minutes(time)
         end_time = minutes_to_time(start_mins + duration_minutes)
 
@@ -298,13 +306,29 @@ class BookingToolkit:
             date=date,
             startTime=time,
             endTime=end_time,
-            customerName=customer_name,
-            customerPhone=customer_phone,
+            customerName=effective_name,
+            customerPhone=effective_phone,
             serviceType=service_desc,
             price=total_price,
             notes=notes,
             status="angefragt",
         )
+
+        booking_intent = {
+            "action": "book_appointment",
+            "lady_id": self.lady.id,
+            "date": date,
+            "start_time": time,
+            "end_time": end_time,
+            "duration_minutes": duration_minutes,
+            "location_type": location_type,
+            "location_address": customer_address,
+            "price_eur": total_price,
+            "customer_name": effective_name,
+            "customer_phone": effective_phone,
+            "notes": notes,
+        }
+        self.last_booking_intent = booking_intent
 
         created = None
         try:
@@ -313,6 +337,7 @@ class BookingToolkit:
             created = None
 
         if created and created.id:
+            booking_intent["appointment_id"] = created.id
             return json.dumps({
                 "success": True,
                 "appointment_id": created.id,
@@ -321,6 +346,9 @@ class BookingToolkit:
                 "end_time": end_time,
                 "price_eur": total_price,
                 "status": "angefragt",
+                "customer_name": effective_name,
+                "customer_phone": effective_phone,
+                "booking_intent": booking_intent,
                 "message": (
                     f"Appointment successfully reserved for {date} from {time} to {end_time}. "
                     f"Total price is €{total_price:.2f}. Status: Requested (angefragt)."
@@ -328,6 +356,7 @@ class BookingToolkit:
             })
         elif self.availability_context:
             # In Greenfield multi-tenant mode, slot is validated against availability_context.
+            booking_intent["appointment_id"] = f"draft-{date}-{time.replace(':', '')}"
             return json.dumps({
                 "success": True,
                 "appointment_id": f"draft-{date}-{time.replace(':', '')}",
@@ -336,6 +365,9 @@ class BookingToolkit:
                 "end_time": end_time,
                 "price_eur": total_price,
                 "status": "angefragt",
+                "customer_name": effective_name,
+                "customer_phone": effective_phone,
+                "booking_intent": booking_intent,
                 "message": (
                     f"Appointment successfully requested for {date} from {time} to {end_time}. "
                     f"Total price is €{total_price:.2f}. Status: Requested (angefragt). "
@@ -347,3 +379,4 @@ class BookingToolkit:
                 "success": False,
                 "message": "Failed to create appointment in Argentura calendar. Please try again or contact operator.",
             })
+

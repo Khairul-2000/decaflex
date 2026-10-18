@@ -1,6 +1,8 @@
 """Tests for Booking Toolkit and Price Quotes."""
 
 import json
+import pytest
+
 from app.argentura.client import ArgenturaClient
 from app.argentura.models import ExtraService, LadyProfile, PriceStructure, TravelFeeConfig
 from app.tools.booking_tools import BookingToolkit
@@ -44,3 +46,45 @@ def test_calculate_price_quote():
     assert quote2["extras_total_eur"] == 30.0
     assert quote2["travel_fee_eur"] == 20.0
     assert quote2["total_price_eur"] == 200.0
+
+
+def test_book_appointment_booking_intent_greenfield():
+    import asyncio
+
+    lady = LadyProfile(
+        id="greenfield-lady:diana_lila",
+        name="Lila",
+        structuredPrices=PriceStructure(p60=60),
+        incall=True,
+    )
+    toolkit = BookingToolkit(
+        lady=lady,
+        client=ArgenturaClient(),
+        availability_context={"timeZone": "Europe/Berlin", "slots": []},
+        sender_name="Alex",
+        sender_phone="+4917622114327",
+    )
+
+    # Call book_appointment without customer_name or customer_phone
+    result_raw = asyncio.run(toolkit.book_appointment(
+        date="2026-10-17",
+        time="15:00",
+        duration_minutes=60,
+        location_type="incall",
+    ))
+    result = json.loads(result_raw)
+
+
+    assert result["success"] is True
+    assert result["status"] == "angefragt"
+    assert result["customer_name"] == "Alex"
+    assert result["customer_phone"] == "+4917622114327"
+    assert toolkit.last_booking_intent is not None
+    assert toolkit.last_booking_intent["lady_id"] == "greenfield-lady:diana_lila"
+    assert toolkit.last_booking_intent["date"] == "2026-10-17"
+    assert toolkit.last_booking_intent["start_time"] == "15:00"
+    assert toolkit.last_booking_intent["end_time"] == "16:00"
+    assert toolkit.last_booking_intent["price_eur"] == 60.0
+    assert toolkit.last_booking_intent["customer_name"] == "Alex"
+    assert toolkit.last_booking_intent["customer_phone"] == "+4917622114327"
+

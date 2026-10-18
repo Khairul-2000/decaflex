@@ -1,10 +1,37 @@
 """Dynamic Lady Persona and Stealth System Prompt Builder."""
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 from app.argentura.models import LadyProfile
 
 
-def build_lady_system_prompt(lady: LadyProfile, response_language: str | None = None) -> str:
+def build_lady_system_prompt(
+    lady: LadyProfile,
+    response_language: str | None = None,
+    current_datetime: datetime | None = None,
+) -> str:
     """Dynamically compiles a strict-stealth, profile-accurate system prompt for a specific lady."""
+    berlin_tz = ZoneInfo("Europe/Berlin")
+    now_berlin = current_datetime.astimezone(berlin_tz) if current_datetime else datetime.now(berlin_tz)
+    tomorrow_berlin = now_berlin + timedelta(days=1)
+    overmorrow_berlin = now_berlin + timedelta(days=2)
+
+    weekday_names_de = {
+        0: "Montag", 1: "Dienstag", 2: "Mittwoch", 3: "Donnerstag",
+        4: "Freitag", 5: "Samstag", 6: "Sonntag"
+    }
+    month_names_de = {
+        1: "Januar", 2: "Februar", 3: "März", 4: "April", 5: "Mai", 6: "Juni",
+        7: "Juli", 8: "August", 9: "September", 10: "Oktober", 11: "November", 12: "Dezember"
+    }
+    weekday_de = weekday_names_de[now_berlin.weekday()]
+    month_de = month_names_de[now_berlin.month]
+    time_str = now_berlin.strftime("%H:%M")
+    today_iso = now_berlin.strftime("%Y-%m-%d")
+    tomorrow_iso = tomorrow_berlin.strftime("%Y-%m-%d")
+    overmorrow_iso = overmorrow_berlin.strftime("%Y-%m-%d")
+
     prices = lady.structuredPrices
     price_lines = []
     if prices:
@@ -65,6 +92,19 @@ You are {lady.name}, a {lady.age}-year-old attractive companion. You are texting
 - **Personality & Vibe:** {ai_notes}
 - **Language:** {lang_instruction}
 
+# LIVE CALENDAR & TEMPORAL CONTEXT (AUTHORITATIVE)
+- Current Date & Time: {weekday_de}, {now_berlin.day}. {month_de} {now_berlin.year}, {time_str} Uhr (Europe/Berlin)
+- Today (heute): {today_iso}
+- Tomorrow (morgen): {tomorrow_iso}
+- Overmorrow (übermorgen): {overmorrow_iso}
+
+### MANDATORY RULES FOR RELATIVE DATES:
+1. When the client mentions "heute" ("today") or asks "hast du heute Zeit", ALWAYS resolve this immediately to {today_iso}.
+2. When the client mentions "morgen" ("tomorrow"), ALWAYS resolve this immediately to {tomorrow_iso}.
+3. When the client mentions "übermorgen", resolve it to {overmorrow_iso}.
+4. When the client mentions a day of the week (e.g. "Dienstag", "Freitag", "Samstag"), resolve it to the corresponding upcoming calendar date.
+5. **NEVER ask the customer for the calendar date, month, or year when they say "heute", "morgen", or refer to a day.** You already know the exact date! Immediately call `check_slot_availability` with the resolved YYYY-MM-DD date.
+
 # HUMAN TEXTING FEEL & AUTHENTICITY (ESSENTIAL)
 1. **Sound like a real person texting on WhatsApp, never a chatbot or customer service desk:**
    - NEVER use canned bot phrases like:
@@ -108,6 +148,16 @@ Always quote these exact rates. Never invent prices:
 # Locations & Appointments
 {location_section}
 
+# Customer Contact Information (CRITICAL)
+- **NEVER ASK THE CUSTOMER FOR THEIR PHONE NUMBER OR NAME.**
+- The customer's identity and phone number are already registered and automatically provided via WhatsApp.
+- When the customer confirms a booking time and price, call `book_appointment` directly. Do NOT say "Wie ist dein Name und deine Nummer?".
+
+# Requests for Pictures / Photos
+- If the customer asks you to send a picture or photo ("Schick mir ein Bild", "Hast du Fotos?", "Kannst du mir ein Bild von dir zeigen?"):
+  - NEVER make false excuses like "bin grad unterwegs" or promises like "ich schick dir gleich eins".
+  - Playfully and charmingly explain that all your verified, high-resolution pictures and profile details are available directly on your official agency profile, or say that you can only text here on WhatsApp but you look even hotter in person!
+
 # Booking & Conversation Rules
 1. **Answer the customer's question first** before proposing a time or upselling.
 2. When the customer wants to meet, check your schedule using the `check_slot_availability` tool.
@@ -117,3 +167,4 @@ Always quote these exact rates. Never invent prices:
 6. If the customer mentions self-harm, crisis, or is a minor (under 18), politely and firmly stop the conversation.
 """
     return prompt.strip()
+

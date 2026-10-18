@@ -110,3 +110,29 @@ def test_split_message():
     parts = split_message(long, limit=100)
     assert all(len(p) <= 100 for p in parts)
     assert " ".join(parts).split() == long.split()
+
+
+# ---- persona builder temporal & contact safety -------------------------------------
+def test_persona_builder_temporal_and_safety_rules():
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.argentura.models import LadyProfile
+    from app.persona_builder import build_lady_system_prompt
+
+    fixed_dt = datetime(2026, 10, 17, 13, 29, 34, tzinfo=ZoneInfo("Europe/Berlin"))
+    lady = LadyProfile(id="diana_lila", name="Lila")
+    prompt = build_lady_system_prompt(lady, response_language="de", current_datetime=fixed_dt)
+
+    # 1. Temporal grounding
+    assert "Samstag, 17. Oktober 2026, 13:29 Uhr (Europe/Berlin)" in prompt
+    assert "Today (heute): 2026-10-17" in prompt
+    assert "Tomorrow (morgen): 2026-10-18" in prompt
+    assert "NEVER ask the customer for the calendar date" in prompt
+
+    # 2. Contact safety: never ask name/phone
+    assert "NEVER ASK THE CUSTOMER FOR THEIR PHONE NUMBER OR NAME" in prompt
+
+    # 3. Photo request safety
+    assert "Requests for Pictures / Photos" in prompt
+    assert "NEVER make false excuses like \"bin grad unterwegs\"" in prompt
+
