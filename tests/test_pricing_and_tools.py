@@ -48,6 +48,46 @@ def test_calculate_price_quote():
     assert quote2["total_price_eur"] == 200.0
 
 
+def test_book_appointment_fails_on_empty_slots_or_no_context():
+    import asyncio
+
+    lady = LadyProfile(
+        id="greenfield-lady:diana_lila",
+        name="Lila",
+        structuredPrices=PriceStructure(p60=60),
+        incall=True,
+    )
+
+    # 1. Without availability_context and failing REST client -> returns failure
+    toolkit_no_ctx = BookingToolkit(
+        lady=lady,
+        client=ArgenturaClient(),
+        availability_context=None,
+        sender_name="Alex",
+        sender_phone="+4917622114327",
+    )
+    res_no_ctx = json.loads(asyncio.run(toolkit_no_ctx.book_appointment(
+        date="2026-10-17", time="15:00", duration_minutes=60, location_type="incall"
+    )))
+    assert res_no_ctx["success"] is False
+    assert toolkit_no_ctx.last_booking_intent is None
+
+    # 2. With availability_context containing empty slots list -> returns failure (Codex defect 1 reproduction)
+    toolkit_empty_slots = BookingToolkit(
+        lady=lady,
+        client=ArgenturaClient(),
+        availability_context={"timeZone": "Europe/Berlin", "slots": []},
+        sender_name="Alex",
+        sender_phone="+4917622114327",
+    )
+    res_empty = json.loads(asyncio.run(toolkit_empty_slots.book_appointment(
+        date="2026-10-17", time="15:00", duration_minutes=60, location_type="incall"
+    )))
+    assert res_empty["success"] is False
+    assert res_empty["status"] == "unavailable"
+    assert toolkit_empty_slots.last_booking_intent is None
+
+
 def test_book_appointment_booking_intent_greenfield():
     import asyncio
 
@@ -57,10 +97,20 @@ def test_book_appointment_booking_intent_greenfield():
         structuredPrices=PriceStructure(p60=60),
         incall=True,
     )
+    # Valid slot covering 2026-10-17 15:00-16:00 (13:00-17:00 UTC)
     toolkit = BookingToolkit(
         lady=lady,
         client=ArgenturaClient(),
-        availability_context={"timeZone": "Europe/Berlin", "slots": []},
+        availability_context={
+            "timeZone": "Europe/Berlin",
+            "slots": [
+                {
+                    "startsAt": "2026-10-17T13:00:00.000Z",
+                    "endsAt": "2026-10-17T17:00:00.000Z",
+                    "status": "available",
+                }
+            ],
+        },
         sender_name="Alex",
         sender_phone="+4917622114327",
     )
@@ -74,8 +124,8 @@ def test_book_appointment_booking_intent_greenfield():
     ))
     result = json.loads(result_raw)
 
-
     assert result["success"] is True
+    assert result["appointment_id"] is None  # No synthetic draft-* ID!
     assert result["status"] == "angefragt"
     assert result["customer_name"] == "Alex"
     assert result["customer_phone"] == "+4917622114327"

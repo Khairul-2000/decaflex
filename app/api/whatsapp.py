@@ -12,6 +12,7 @@ from app.agent_service import AgentService
 from app.argentura.client import ArgenturaClient
 from app.argentura.models import LadyProfile
 from app.config import Settings, get_settings
+from app.persona_builder import build_lady_system_prompt
 from app.sessions import SessionStore, get_session_store
 
 log = logging.getLogger("argentura.whatsapp")

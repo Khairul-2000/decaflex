@@ -97,3 +97,38 @@ def test_whatsapp_webhook_greenfield_conversation_bypass():
 
     app.dependency_overrides.clear()
 
+
+@pytest.mark.anyio
+async def test_get_or_create_agent_cached_language_switch():
+    from app.api.whatsapp import _AGENTS, get_or_create_agent
+    from app.config import get_settings
+    from app.sessions import MemorySessionStore
+
+    settings = get_settings()
+    store = MemorySessionStore()
+    mock_client = MockArgenturaClient()
+
+    lady_id = "test-switch-lady-direct"
+    # Create with German
+    agent1 = await get_or_create_agent(
+        lady_id=lady_id,
+        client=mock_client,
+        settings=settings,
+        store=store,
+        response_language="de",
+    )
+    assert agent1.response_language == "de"
+    assert lady_id in _AGENTS
+
+    # Switch to English on cached agent without lady_context (exercises line 106)
+    agent2 = await get_or_create_agent(
+        lady_id=lady_id,
+        client=mock_client,
+        settings=settings,
+        store=store,
+        response_language="en",
+    )
+    assert agent2 is agent1
+    assert agent2.response_language == "en"
+    assert "English" in agent2.system_prompt or "en" in agent2.system_prompt
+

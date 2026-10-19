@@ -355,11 +355,27 @@ class BookingToolkit:
                 ),
             })
         elif self.availability_context:
-            # In Greenfield multi-tenant mode, slot is validated against availability_context.
-            booking_intent["appointment_id"] = f"draft-{date}-{time.replace(':', '')}"
+            # Strictly validate that slot is actually open before returning success
+            slot_check_raw = await self.check_slot_availability(date, time, duration_minutes, location_type)
+            slot_check = json.loads(slot_check_raw)
+            if slot_check.get("status") != "available":
+                self.last_booking_intent = None
+                return json.dumps({
+                    "success": False,
+                    "status": "unavailable",
+                    "message": (
+                        f"Slot on {date} at {time} ({duration_minutes} min, {location_type}) is unavailable. "
+                        f"Cannot request appointment for an unavailable time slot."
+                    ),
+                    "suggested_alternatives": slot_check.get("suggested_alternatives", []),
+                })
+
+            # In Greenfield multi-tenant mode, slot is genuinely validated against calendar availability.
+            # No synthetic draft-* ID is returned; actual appointment ID will be assigned by the worker on persistence.
+            booking_intent["appointment_id"] = None
             return json.dumps({
                 "success": True,
-                "appointment_id": f"draft-{date}-{time.replace(':', '')}",
+                "appointment_id": None,
                 "date": date,
                 "start_time": time,
                 "end_time": end_time,
@@ -369,12 +385,13 @@ class BookingToolkit:
                 "customer_phone": effective_phone,
                 "booking_intent": booking_intent,
                 "message": (
-                    f"Appointment successfully requested for {date} from {time} to {end_time}. "
+                    f"Appointment request created for {date} from {time} to {end_time}. "
                     f"Total price is €{total_price:.2f}. Status: Requested (angefragt). "
-                    f"Confirm warmly to the client that the reservation is noted and you look forward to meeting."
+                    f"Confirm to the client that the appointment is requested and pending confirmation."
                 ),
             })
         else:
+            self.last_booking_intent = None
             return json.dumps({
                 "success": False,
                 "message": "Failed to create appointment in Argentura calendar. Please try again or contact operator.",

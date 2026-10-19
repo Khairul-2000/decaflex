@@ -82,8 +82,8 @@ class AgentService:
             base_url=settings.llm_base_url,
             temperature=settings.temperature,
             max_tokens=settings.max_tokens,
-            timeout=60,
-            max_retries=2,
+            timeout=20,
+            max_retries=1,
             default_headers={"HTTP-Referer": settings.app_url, "X-Title": lady.name},
         )
         self.llm = raw_llm.bind_tools(self.tools)
