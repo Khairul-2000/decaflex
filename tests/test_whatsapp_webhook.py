@@ -132,3 +132,84 @@ async def test_get_or_create_agent_cached_language_switch():
     assert agent2.response_language == "en"
     assert "English" in agent2.system_prompt or "en" in agent2.system_prompt
 
+
+def test_lady_profile_outcall_and_address_from_lady_context():
+    from app.argentura.models import LadyProfile
+
+    lady_ctx = {
+        "displayName": "Diana",
+        "allowedVisitTypes": ["incall", "outcall"],
+        "travelFeeRule": {
+            "maxDistanceKm": 40,
+            "amountMinor": 3500,
+            "currencyCode": "EUR",
+        },
+        "incallAddress": {
+            "street": "Berliner Str.",
+            "houseNumber": "16",
+            "zip": "10115",
+            "city": "Berlin",
+        },
+        "services": [
+            {"durationMinutes": 60, "amountMinor": 6000}
+        ],
+    }
+
+    lady = LadyProfile.from_lady_context(lady_id="lady-diana", lady_context=lady_ctx)
+    assert lady.name == "Diana"
+    assert lady.incall is True
+    assert lady.outcall is True
+    assert lady.travelFee is not None
+    assert lady.travelFee.maxDistanceKm == 40
+    assert lady.travelFee.fee_eur == 35.0
+    assert "Studio" not in lady.studio_address
+    assert "Berliner Str. 16, 10115, Berlin" == lady.studio_address
+
+
+@pytest.mark.anyio
+async def test_webhook_with_booking_context_merging():
+    from app.api.whatsapp import get_or_create_agent
+    from app.config import get_settings
+    from app.sessions import MemorySessionStore
+
+    settings = get_settings()
+    store = MemorySessionStore()
+    mock_client = MockArgenturaClient()
+
+    lady_ctx = {
+        "displayName": "Diana",
+        "services": [{"durationMinutes": 60, "amountMinor": 6000}],
+    }
+    booking_ctx = {
+        "allowedVisitTypes": ["incall", "outcall"],
+        "travelPlanning": {
+            "feeRule": {
+                "maxDistanceKm": 30,
+                "amountMinor": 2500,
+            }
+        }
+    }
+
+    # Simulate webhook handler merging
+    merged_ctx = dict(lady_ctx)
+    if "allowedVisitTypes" in booking_ctx:
+        merged_ctx["allowedVisitTypes"] = booking_ctx["allowedVisitTypes"]
+    if "travelPlanning" in booking_ctx and "feeRule" in booking_ctx["travelPlanning"]:
+        merged_ctx["travelFeeRule"] = booking_ctx["travelPlanning"]["feeRule"]
+
+    agent = await get_or_create_agent(
+        lady_id="test-merge-lady",
+        client=mock_client,
+        settings=settings,
+        store=store,
+        lady_context=merged_ctx,
+        lady_name="Diana",
+    )
+    assert agent.lady.name == "Diana"
+    assert agent.lady.outcall is True
+    assert agent.lady.travelFee is not None
+    assert agent.lady.travelFee.maxDistanceKm == 30
+    assert agent.lady.travelFee.fee_eur == 25.0
+
+
+

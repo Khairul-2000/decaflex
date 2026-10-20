@@ -24,6 +24,7 @@ class IncomingWhatsAppMessage(BaseModel):
     lady_name: str | None = Field(default=None, description="Assigned Lady Name")
     agency_id: str | None = Field(default=None, description="Assigned Agency ID")
     lady_context: dict[str, Any] | None = Field(default=None, description="Real profile and pricing context from Argentura")
+    booking_context: dict[str, Any] | None = Field(default=None, description="Booking context including allowedVisitTypes and travelPlanning from Argentura")
     availability_context: dict[str, Any] | None = Field(default=None, description="Pre-calculated 14-day slot availability schedule from Argentura")
     conversation_state: str | None = Field(default=None, description="Conversation state e.g. AI_ACTIVE")
     ownership_kind: str | None = Field(default=None, description="Ownership kind e.g. ai or operator")
@@ -154,12 +155,21 @@ async def handle_incoming_whatsapp(
             return {"status": "ignored", "reason": "operator_takeover"}
 
     # 2. Get agent instance for this lady dynamically
+    lady_ctx = dict(payload.lady_context) if payload.lady_context else {}
+    if payload.booking_context and isinstance(payload.booking_context, dict):
+        if "allowedVisitTypes" not in lady_ctx and "allowedVisitTypes" in payload.booking_context:
+            lady_ctx["allowedVisitTypes"] = payload.booking_context["allowedVisitTypes"]
+        if "travelFeeRule" not in lady_ctx and "travelPlanning" in payload.booking_context:
+            tp = payload.booking_context.get("travelPlanning") or {}
+            if "feeRule" in tp:
+                lady_ctx["travelFeeRule"] = tp["feeRule"]
+
     agent = await get_or_create_agent(
         lady_id=lady_id,
         client=client,
         settings=settings,
         store=store,
-        lady_context=payload.lady_context,
+        lady_context=lady_ctx or payload.lady_context,
         lady_name=payload.lady_name,
         availability_context=payload.availability_context,
         response_language=payload.response_language,

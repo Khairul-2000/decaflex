@@ -212,7 +212,7 @@ class BookingToolkit:
         if not self.lady.outcall:
             return json.dumps({
                 "allowed": False,
-                "reason": f"{self.lady.name} currently only offers In-Call appointments at her studio.",
+                "reason": f"{self.lady.name} currently only offers appointments at her private address.",
             })
 
         max_dist = self.lady.travelFee.maxDistanceKm if self.lady.travelFee else 25

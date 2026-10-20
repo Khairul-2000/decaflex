@@ -153,9 +153,10 @@ class LadyProfile(BaseModel):
 
     @property
     def studio_address(self) -> str:
-        parts = [self.street, self.houseNumber, self.zip, self.city]
+        street_part = f"{self.street or ''} {self.houseNumber or ''}".strip()
+        parts = [street_part, self.zip, self.city]
         valid = [p for p in parts if p]
-        return ", ".join(valid) if valid else "Studio"
+        return ", ".join(valid) if valid else (street_part or "meiner Adresse")
 
     @classmethod
     def from_lady_context(
@@ -215,16 +216,38 @@ class LadyProfile(BaseModel):
         postal_code = incall_addr.get("zip") if isinstance(incall_addr, dict) else None
         city = incall_addr.get("city") if isinstance(incall_addr, dict) else None
 
+        allowed_visit_types = lady_context.get("allowedVisitTypes")
+        if isinstance(allowed_visit_types, list):
+            incall = "incall" in allowed_visit_types
+            outcall = "outcall" in allowed_visit_types
+        else:
+            incall = bool(lady_context.get("incall", True))
+            outcall = bool(lady_context.get("outcall", False))
+
+        travel_fee = None
+        travel_fee_raw = lady_context.get("travelFeeRule") or lady_context.get("travelFee")
+        if isinstance(travel_fee_raw, dict):
+            try:
+                travel_fee = TravelFeeConfig(
+                    maxDistanceKm=int(travel_fee_raw.get("maxDistanceKm", 25)),
+                    amountMinor=int(travel_fee_raw.get("amountMinor", 0)),
+                )
+            except Exception:
+                pass
+
         return cls(
             id=lady_id,
             name=name,
             sprache=lady_context.get("language") or "de",
+            incall=incall,
+            outcall=outcall,
             street=street,
             houseNumber=house_num,
             zip=postal_code,
             city=city,
             structuredPrices=structured_prices,
             structuredExtras=extras_list,
+            travelFee=travel_fee,
             aiInfo=ai_info,
         )
 
