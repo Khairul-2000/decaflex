@@ -22,7 +22,7 @@ class CheckAvailabilitySchema(BaseModel):
     date: str = Field(description="Date in YYYY-MM-DD format, e.g. 2026-10-15")
     time: str = Field(description="Desired start time in HH:MM format (24-hour), e.g. 18:00")
     duration_minutes: int = Field(default=60, description="Duration in minutes (e.g. 30, 45, 60, 120)")
-    location_type: str = Field(default="incall", description="'incall' (at studio) or 'outcall' (at client location)")
+    location_type: str = Field(default="incall", description="'incall' (at lady's location / 'bei mir') or 'outcall' (at client location)")
 
 
 class CheckDistanceSchema(BaseModel):
