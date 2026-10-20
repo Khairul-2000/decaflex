@@ -14,6 +14,7 @@ class SessionData:
     history: list[dict] = field(default_factory=list)  # [{"role": "user"|"assistant", "content": str}]
     adult: bool = False
     minor: bool = False
+    last_active: float = field(default_factory=time.time)
 
 
 class SessionStore(Protocol):
@@ -24,7 +25,7 @@ class SessionStore(Protocol):
 
 
 class MemorySessionStore:
-    def __init__(self, ttl_seconds: int = 86400, max_sessions: int = 10000):
+    def __init__(self, ttl_seconds: int = 21600, max_sessions: int = 10000):
         self._ttl = ttl_seconds
         self._max = max_sessions
         self._data: dict[str, tuple[float, SessionData]] = {}
@@ -46,12 +47,15 @@ class MemorySessionStore:
             return SessionData()
         # return a copy so callers can't mutate stored state by accident
         data = entry[1]
-        return SessionData(list(data.history), data.adult, data.minor)
+        if time.time() - data.last_active > self._ttl:
+            return SessionData(adult=data.adult, minor=data.minor, last_active=time.time())
+        return SessionData(list(data.history), data.adult, data.minor, data.last_active)
 
     async def save(self, session_id: str, data: SessionData) -> None:
+        data.last_active = time.time()
         self._data[session_id] = (
             time.monotonic(),
-            SessionData(list(data.history), data.adult, data.minor),
+            SessionData(list(data.history), data.adult, data.minor, data.last_active),
         )
         self._purge()
 
@@ -59,7 +63,7 @@ class MemorySessionStore:
         entry = self._data.get(session_id)
         if entry:
             data = entry[1]
-            await self.save(session_id, SessionData([], data.adult, data.minor))
+            await self.save(session_id, SessionData([], data.adult, data.minor, time.time()))
 
     async def close(self) -> None:
         self._data.clear()
@@ -71,7 +75,7 @@ log = logging.getLogger("luna.sessions")
 
 
 class RedisSessionStore:
-    def __init__(self, url: str, ttl_seconds: int = 86400):
+    def __init__(self, url: str, ttl_seconds: int = 21600):
         import redis.asyncio as redis
 
         self._redis = redis.from_url(url, decode_responses=True)
@@ -88,13 +92,25 @@ class RedisSessionStore:
         if not raw:
             return SessionData()
         obj = json.loads(raw)
+        last_active = obj.get("last_active", time.time())
+        # If inactive for more than ttl (6 hours), reset conversation history
+        if time.time() - last_active > self._ttl:
+            log.info("Session '%s' inactive for %ds (> %ds TTL). Resetting history to start fresh context.", key, int(time.time() - last_active), self._ttl)
+            return SessionData(
+                history=[],
+                adult=obj.get("adult", False),
+                minor=obj.get("minor", False),
+                last_active=time.time(),
+            )
         return SessionData(
             history=obj.get("history", []),
             adult=obj.get("adult", False),
             minor=obj.get("minor", False),
+            last_active=last_active,
         )
 
     async def save(self, session_id: str, data: SessionData) -> None:
+        data.last_active = time.time()
         key = self._key(session_id)
         log.info("Redis session SET '%s' (TTL: %ds, messages: %d)", key, self._ttl, len(data.history))
         await self._redis.set(

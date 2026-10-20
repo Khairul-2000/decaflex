@@ -60,7 +60,7 @@ class Settings(BaseSettings):
 
     # --- Short-term chat history ---
     history_turns: int = 20
-    session_ttl_seconds: int = 86400
+    session_ttl_seconds: int = 21600  # 6 hours context window
     redis_url: str = ""
 
     # --- Limits ---

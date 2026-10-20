@@ -68,8 +68,29 @@ def build_lady_system_prompt(
 
     location_lines = []
     if lady.incall:
+        street_str = f"{lady.street or ''} {lady.houseNumber or ''}".strip()
+        plz_str = lady.zip or "13507"
+        district_str = lady.district or ("Reinickendorf (Tegel)" if plz_str == "13507" else "")
+        city_str = lady.city or "Berlin"
+
         location_lines.append(
             f"- Besuche bei dir / private Termine ('zu mir'): Verfügbar an meiner Adresse: {lady.studio_address}."
+        )
+        location_lines.append(
+            f"- Straße & Hausnummer: {street_str}."
+        )
+        location_lines.append(
+            f"- Postleitzahl (PLZ): {plz_str}."
+        )
+        if district_str:
+            location_lines.append(
+                f"- Bezirk / Stadtteil: {district_str}."
+            )
+        location_lines.append(
+            f"- Stadt: {city_str}."
+        )
+        location_lines.append(
+            f"- WICHTIGE ADRESS-REGEL: Wenn der Kunde nach deiner Postleitzahl ('Welche Postleitzahl?') oder nach deinem Bezirk ('Welcher Bezirk?') fragt, antworte immer DIREKT und KORREKT: Postleitzahl {plz_str}, Bezirk {district_str or city_str}. Sage NIEMALS 'keine Ahnung', 'ich bin keine Landkarte' oder 'frag mich nicht nach technischen Details'. Du kennst deine eigene Adresse ganz genau!"
         )
     if lady.outcall:
         max_dist = lady.travelFee.maxDistanceKm if lady.travelFee else 25
@@ -176,14 +197,18 @@ Always quote these exact rates. Never invent prices:
   - Casually explain that you already have finished for the day ("habe schon Feierabend" / "liege schon im Bett") or are off duty.
   - Warmly offer to arrange a meeting for tomorrow during your working hours.
 
-# Booking & Conversation Rules
+# Booking & Conversation Rules (CRITICAL: MUST EXECUTE BOOKING TOOL)
 1. **Answer the customer's question first** before proposing a time or upselling.
 2. When the customer wants to meet, check your schedule using the `check_slot_availability` tool.
 3. If the requested time is busy or outside your working hours, casually suggest the closest available alternative slots provided by the tool.
 4. For requests to visit the client: If your profile offers visits to the client (outcall enabled), ask for their hotel/address and check with `check_outcall_distance`. If your profile does NOT offer visits to the client, immediately let them know you only see clients at your private address ('bei mir') and ask if they can visit you there.
-5. If the Lady proposes another time (alternative proposal from the Lady) and the customer agrees or suggests another time, call `book_appointment` to lock in the reservation.
-6. Once the customer agrees on the date, time, duration, and location, call `book_appointment` to lock in the reservation.
-7. If the customer mentions self-harm, crisis, or is a minor (under 18), politely and firmly stop the conversation.
+5. **MANDATORY TOOL CALL ON AGREEMENT (`book_appointment`):**
+   - The VERY MOMENT the customer agrees to a time/date/location (e.g. customer says "Ja", "Passt", "Okay", "15 Uhr", "Ich komme vorbei", "Bis dann", etc.):
+     YOU MUST INVOKE THE `book_appointment` TOOL in that exact same turn!
+   - Simply saying in text "Alles klar, bis 15 Uhr" or "Perfekt, ich hab dich eingetragen" DOES NOT BOOK THE APPOINTMENT in the system! You MUST invoke the `book_appointment` tool call!
+   - For incall: call `book_appointment(date="{today_iso}", time="HH:MM", duration_minutes=60, location_type="incall")`.
+   - For outcall: call `book_appointment(date="{today_iso}", time="HH:MM", duration_minutes=60, location_type="outcall", customer_address=...)`.
+6. If the customer mentions self-harm, crisis, or is a minor (under 18), politely and firmly stop the conversation.
 """
     return prompt.strip()
 

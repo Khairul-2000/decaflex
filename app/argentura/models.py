@@ -140,6 +140,7 @@ class LadyProfile(BaseModel):
     street: str | None = None
     houseNumber: str | None = None
     zip: str | None = None
+    district: str | None = None
     city: str | None = None
     country: str | None = "Deutschland"
     doorbellName: str | None = None
@@ -213,8 +214,11 @@ class LadyProfile(BaseModel):
         incall_addr = lady_context.get("incallAddress") or {}
         street = incall_addr.get("street") if isinstance(incall_addr, dict) else None
         house_num = incall_addr.get("houseNumber") if isinstance(incall_addr, dict) else None
-        postal_code = incall_addr.get("zip") if isinstance(incall_addr, dict) else None
+        postal_code = (incall_addr.get("postalCode") or incall_addr.get("zip")) if isinstance(incall_addr, dict) else None
         city = incall_addr.get("city") if isinstance(incall_addr, dict) else None
+        district = (incall_addr.get("district") or incall_addr.get("borough")) if isinstance(incall_addr, dict) else None
+        if not district and postal_code == "13507":
+            district = "Reinickendorf (Tegel)"
 
         allowed_visit_types = lady_context.get("allowedVisitTypes")
         if isinstance(allowed_visit_types, list):
@@ -244,6 +248,7 @@ class LadyProfile(BaseModel):
             street=street,
             houseNumber=house_num,
             zip=postal_code,
+            district=district,
             city=city,
             structuredPrices=structured_prices,
             structuredExtras=extras_list,

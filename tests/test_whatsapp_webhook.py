@@ -212,4 +212,53 @@ async def test_webhook_with_booking_context_merging():
     assert agent.lady.travelFee.fee_eur == 25.0
 
 
+def test_postal_code_and_district_reinickendorf():
+    from app.argentura.models import LadyProfile
+    from app.persona_builder import build_lady_system_prompt
+
+    lady_ctx = {
+        "displayName": "Lila",
+        "incallAddress": {
+            "street": "Berliner str",
+            "houseNumber": "16",
+            "postalCode": "13507",
+            "city": "Berlin",
+            "doorbellName": "Yoko",
+        },
+        "services": [{"durationMinutes": 60, "amountMinor": 6000}],
+    }
+    lady = LadyProfile.from_lady_context("test-lady-plz", lady_ctx)
+    assert lady.zip == "13507"
+    assert lady.district == "Reinickendorf (Tegel)"
+    assert "Berliner str 16, 13507, Berlin" == lady.studio_address
+
+    prompt = build_lady_system_prompt(lady)
+    assert "13507" in prompt
+    assert "Reinickendorf (Tegel)" in prompt
+    assert "WICHTIGE ADRESS-REGEL" in prompt
+
+
+@pytest.mark.anyio
+async def test_session_store_6h_inactivity_reset():
+    import time
+    from app.sessions import MemorySessionStore, SessionData
+
+    store = MemorySessionStore(ttl_seconds=21600)
+    sess_id = "test-inactivity-session"
+
+    # Save a session active 7 hours ago
+    old_time = time.time() - (7 * 3600)
+    data = SessionData(
+        history=[{"role": "user", "content": "yesterday message"}],
+        last_active=old_time,
+    )
+    # Manually store with old timestamp to simulate inactive session
+    store._data[sess_id] = (time.monotonic(), data)
+
+    # Retrieval after 7 hours of inactivity should return clean history
+    loaded = await store.get(sess_id)
+    assert loaded.history == []
+
+
+
 

@@ -211,6 +211,30 @@ class AgentService:
         # Capture any booking intent executed during this turn
         self.last_booking_intent = self.toolkit.last_booking_intent
 
+        # Double safety: If reply verbally confirmed a booking but model forgot the tool call
+        if not self.last_booking_intent and reply:
+            reply_lower = reply.lower()
+            text_lower = text.lower()
+            verbal_triggers = [
+                "bis gleich", "bis dann", "eingetragen", "bei mir", "komme dann", "freue mich auf", "reserviert", "bis später", "trage dich ein"
+            ]
+            user_affirmations = ["ja", "passt", "okay", "ok", "super", "uhr", "gut", "komme", "gerne"]
+            if any(vt in reply_lower for vt in verbal_triggers) and any(ua in text_lower for ua in user_affirmations):
+                log.info("Verbal booking confirmation detected without tool call. Forcing book_appointment invocation.")
+                retry_messages = list(messages)
+                retry_messages.append(AIMessage(content=reply))
+                retry_messages.append(HumanMessage(content="[System instruction: Du hast den Termin im Text bestätigt, aber hast vergessen das book_appointment Tool aufzurufen! Rufe JETZT sofort book_appointment mit Datum, Uhrzeit, Dauer und Location auf, damit der Termin im Kalender gespeichert wird!]"))
+                try:
+                    retry_resp = await self.llm.ainvoke(retry_messages)
+                    if retry_resp.tool_calls:
+                        for tc in retry_resp.tool_calls:
+                            if tc["name"] == "book_appointment":
+                                await self.toolkit.book_appointment(**tc["args"])
+                                self.last_booking_intent = self.toolkit.last_booking_intent
+                                break
+                except Exception as e:
+                    log.warning("Safety booking tool retry failed: %s", e)
+
         # 5. Commit history
         data.history.append({"role": "user", "content": text})
         data.history.append({"role": "assistant", "content": reply})
